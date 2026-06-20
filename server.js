@@ -50,6 +50,16 @@ const n = (v) => (v == null ? undefined : Number(v));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// Reports this server's public outbound IP — the address to whitelist in FatSecret.
+app.get("/ip", async (_req, res) => {
+  try {
+    const r = await fetch("https://api.ipify.org?format=json");
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ error: String(err.message || err) });
+  }
+});
+
 app.get("/api/food", async (req, res) => {
   // Optional shared-key gate so a public URL can't burn your FatSecret quota.
   if (process.env.PROXY_SHARED_KEY && req.get("x-proxy-key") !== process.env.PROXY_SHARED_KEY) {

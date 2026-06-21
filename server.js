@@ -106,5 +106,54 @@ app.get("/api/food", async (req, res) => {
   }
 });
 
+// Name search → FatSecret foods.search, enriched with per-food nutrition (food.get.v4).
+app.get("/api/search", async (req, res) => {
+  if (process.env.PROXY_SHARED_KEY && req.get("x-proxy-key") !== process.env.PROXY_SHARED_KEY) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  const q = String(req.query.q || "").trim();
+  if (!q) return res.status(400).json({ error: "q required" });
+
+  try {
+    const token = await getToken();
+    const searchResp = await rest(token, { method: "foods.search", search_expression: q, max_results: 10 });
+    let foods = searchResp?.foods?.food;
+    if (!foods) return res.json({ results: [] });
+    if (!Array.isArray(foods)) foods = [foods];
+
+    const results = await Promise.all(foods.slice(0, 8).map(async (f) => {
+      try {
+        const detail = await rest(token, { method: "food.get.v4", food_id: f.food_id });
+        const food = detail?.food;
+        let serving = food?.servings?.serving;
+        if (Array.isArray(serving)) serving = serving[0];
+        serving = serving || {};
+        return {
+          name: food?.food_name || f.food_name || "",
+          brand: food?.brand_name || f.brand_name || "",
+          category: food?.food_type || "Food & Drink",
+          imageUrl: food?.food_images?.food_image?.[0]?.image_url,
+          food_id: f.food_id,
+          nutrition: {
+            serving: serving.serving_description,
+            calories: n(serving.calories),
+            sugar_g: n(serving.sugar),
+            sat_fat_g: n(serving.saturated_fat),
+            sodium_mg: n(serving.sodium),
+            protein_g: n(serving.protein),
+            fiber_g: n(serving.fiber),
+            carbs_g: n(serving.carbohydrate),
+          },
+        };
+      } catch {
+        return null;
+      }
+    }));
+    res.json({ results: results.filter(Boolean) });
+  } catch (err) {
+    res.status(502).json({ error: String(err.message || err) });
+  }
+});
+
 const port = process.env.PORT || 8080;
 app.listen(port, "0.0.0.0", () => console.log(`Scope FatSecret proxy on :${port}`));
